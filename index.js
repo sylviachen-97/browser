@@ -1,12 +1,9 @@
-// 1) REQUIRE EXPRESS & PUPPETEER
 const express = require('express');
 const puppeteer = require('puppeteer');
 
-// 2) CREATE THE EXPRESS APP
 const app = express();
-app.use(express.json()); // Parse JSON if needed
+app.use(express.json());
 
-// 3) DEFINE YOUR ROUTE /resolve
 app.get('/resolve', async (req, res) => {
   const { url } = req.query;
   if (!url) {
@@ -15,64 +12,61 @@ app.get('/resolve', async (req, res) => {
 
   let browser;
   try {
-    // 3A) LAUNCH PUPPETEER
+    // Launch Puppeteer
     browser = await puppeteer.launch({
-      headless: true, // Puppeteer v18 uses `true` for headless mode
-      args: ['--no-sandbox', '--disable-setuid-sandbox'], // Required for Render
+      headless: true, // Use 'true' for Puppeteer v18
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
-    // 3B) CREATE NEW PAGE
     const page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // 3C) GOTO THE URL
-    await page.goto(url, {
-      waitUntil: 'networkidle2', // Wait for network to idle (page fully loaded)
-      timeout: 30000, // 30 seconds timeout
-    });
-
-    // 3D) HANDLE CONSENT PAGES IF ANY
+    // Handle consent page if detected
     if (page.url().includes('consent.google.com')) {
       console.log('Consent page detected. Searching for "agree/accept" button...');
+
       try {
-        // Wait for button or input elements to appear
-        await page.waitForSelector('button, input[type="button"], input[type="submit"]', {
-          timeout: 5000,
-        });
+        await page.waitForSelector('button, input[type="button"], input[type="submit"]', { timeout: 5000 });
 
         const allButtons = await page.$$('button, input[type="button"], input[type="submit"]');
         let clicked = false;
 
         for (const btn of allButtons) {
           const text = await page.evaluate(el => el.innerText || el.value || '', btn);
-          if (text.trim().toLowerCase().includes('agree') || text.trim().toLowerCase().includes('accept')) {
+          const lowerText = text.trim().toLowerCase();
+          console.log('Found button/input with text:', lowerText);
+
+          if (lowerText.includes('agree') || lowerText.includes('accept')) {
             console.log('Clicking button:', text);
+
             await Promise.all([
               btn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+                console.warn('Navigation did not occur after clicking consent button.');
+              }),
             ]);
+
             clicked = true;
             break;
           }
         }
 
         if (!clicked) {
-          console.warn("No 'agree'/'accept' button found. Custom logic might be needed.");
+          console.warn('No clickable "agree/accept" button found.');
         }
-      } catch (err) {
-        console.warn('No clickable elements found or timeout expired.');
+      } catch (e) {
+        console.warn('Error handling consent page:', e.message);
       }
     }
 
-    // 3E) GET FINAL URL AFTER NAVIGATION
+    // Capture the final URL
     const finalUrl = page.url();
     console.log('Final URL:', finalUrl);
 
-    // 3F) SEND THE RESPONSE
     res.json({ finalUrl });
-
   } catch (err) {
     console.error('Error during Puppeteer navigation:', err);
-    res.status(500).json({ error: 'Failed to resolve URL.', details: err.message });
+    res.status(500).json({ error: err.toString() });
   } finally {
     if (browser) {
       await browser.close();
@@ -80,7 +74,6 @@ app.get('/resolve', async (req, res) => {
   }
 });
 
-// 4) START THE EXPRESS SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Puppeteer service running on port ${PORT}`);
