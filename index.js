@@ -4,7 +4,7 @@ const puppeteer = require('puppeteer');
 
 // 2) CREATE THE EXPRESS APP
 const app = express();
-app.use(express.json()); // Parse JSON if needed
+app.use(express.json()); // parse JSON if needed
 
 // 3) DEFINE YOUR ROUTE /resolve
 app.get('/resolve', async (req, res) => {
@@ -17,7 +17,7 @@ app.get('/resolve', async (req, res) => {
   try {
     // 3A) LAUNCH PUPPETEER
     browser = await puppeteer.launch({
-      headless: true, // 'true' is correct for Puppeteer v18
+      headless: 'new',  // or headless: true if "new" isn't supported
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox'
@@ -31,44 +31,47 @@ app.get('/resolve', async (req, res) => {
       timeout: 60000
     });
 
-    // 3C) HANDLE CONSENT PAGE
+    // 3C) IF WE LAND ON CONSENT PAGE, DO A GENERIC BUTTON SEARCH
     if (page.url().includes('consent.google.com')) {
-      console.log('Consent page detected. Searching for "agree/accept" button...');
+      console.log('Consent page detected. Searching for an "agree/accept" button...');
 
+      // Wait (up to 5s) for ANY button or input to appear
       try {
-        // Wait (up to 5s) for any button or input to appear
         await page.waitForSelector('button, input[type="button"], input[type="submit"]', { timeout: 5000 });
-
-        const allButtons = await page.$$('button, input[type="button"], input[type="submit"]');
-        let clicked = false;
-
-        for (const btn of allButtons) {
-          const text = await page.evaluate(el => el.innerText || el.value || '', btn);
-          const lowerText = text.trim().toLowerCase();
-          console.log('Found button/input with text:', lowerText);
-
-          if (lowerText.includes('agree') || lowerText.includes('accept')) {
-            console.log('Clicking button:', text);
-
-            await Promise.all([
-              btn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 })
-            ]);
-
-            clicked = true;
-            break;
-          }
-        }
-
-        if (!clicked) {
-          console.warn("No 'agree'/'accept' button found. Might need custom logic for your region.");
-        }
       } catch (e) {
-        console.warn('Error handling consent page:', e.message);
+        console.warn('No clickable elements found (timeout).');
+      }
+
+      // Collect all button-like elements
+      const allButtons = await page.$$('button, input[type="button"], input[type="submit"]');
+      let clicked = false;
+
+      for (const btn of allButtons) {
+        // Get the displayed text
+        const text = await page.evaluate(el => el.innerText || el.value || '', btn);
+        const lowerText = text.trim().toLowerCase();
+        console.log('Found button/input with text:', lowerText);
+
+        // If it says something like "agree" or "accept," click it
+        if (lowerText.includes('agree') || lowerText.includes('accept')) {
+          console.log('Clicking button:', text);
+
+          await Promise.all([
+            btn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 })
+          ]);
+
+          clicked = true;
+          break;
+        }
+      }
+
+      if (!clicked) {
+        console.warn("No 'agree'/'accept' button found. Might need custom logic for your region.");
       }
     }
 
-    // 3D) GET FINAL URL
+    // 3D) AFTER POSSIBLE CONSENT CLICK, GET FINAL URL
     const finalUrl = page.url();
     console.log('Final URL:', finalUrl);
 
