@@ -1,9 +1,12 @@
+// 1) REQUIRE EXPRESS & PUPPETEER
 const express = require('express');
 const puppeteer = require('puppeteer');
 
+// 2) CREATE THE EXPRESS APP
 const app = express();
-app.use(express.json());
+app.use(express.json()); // Parse JSON if needed
 
+// 3) DEFINE YOUR ROUTE /resolve
 app.get('/resolve', async (req, res) => {
   const { url } = req.query;
   if (!url) {
@@ -12,20 +15,28 @@ app.get('/resolve', async (req, res) => {
 
   let browser;
   try {
-    // Launch Puppeteer
+    // 3A) LAUNCH PUPPETEER
     browser = await puppeteer.launch({
-      headless: true, // Use 'true' for Puppeteer v18
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: true, // 'true' is correct for Puppeteer v18
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+      ]
     });
 
+    // 3B) CREATE NEW PAGE & GOTO
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: 60000
+    });
 
-    // Handle consent page if detected
+    // 3C) HANDLE CONSENT PAGE
     if (page.url().includes('consent.google.com')) {
       console.log('Consent page detected. Searching for "agree/accept" button...');
 
       try {
+        // Wait (up to 5s) for any button or input to appear
         await page.waitForSelector('button, input[type="button"], input[type="submit"]', { timeout: 5000 });
 
         const allButtons = await page.$$('button, input[type="button"], input[type="submit"]');
@@ -41,9 +52,7 @@ app.get('/resolve', async (req, res) => {
 
             await Promise.all([
               btn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
-                console.warn('Navigation did not occur after clicking consent button.');
-              }),
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 })
             ]);
 
             clicked = true;
@@ -52,18 +61,20 @@ app.get('/resolve', async (req, res) => {
         }
 
         if (!clicked) {
-          console.warn('No clickable "agree/accept" button found.');
+          console.warn("No 'agree'/'accept' button found. Might need custom logic for your region.");
         }
       } catch (e) {
         console.warn('Error handling consent page:', e.message);
       }
     }
 
-    // Capture the final URL
+    // 3D) GET FINAL URL
     const finalUrl = page.url();
     console.log('Final URL:', finalUrl);
 
+    // 3E) SEND IT BACK AS JSON
     res.json({ finalUrl });
+
   } catch (err) {
     console.error('Error during Puppeteer navigation:', err);
     res.status(500).json({ error: err.toString() });
@@ -74,6 +85,7 @@ app.get('/resolve', async (req, res) => {
   }
 });
 
+// 4) START THE EXPRESS SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Puppeteer service running on port ${PORT}`);
