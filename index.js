@@ -17,7 +17,7 @@ app.get('/resolve', async (req, res) => {
   try {
     // 3A) LAUNCH PUPPETEER
     browser = await puppeteer.launch({
-      headless: 'new',  // or headless: true if "new" isn't supported
+      headless: true,  // or headless: true if "new" isn't supported
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox'
